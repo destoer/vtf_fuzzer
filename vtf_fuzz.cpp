@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <iostream>
+#include <algorithm>
 #include <vector>
 #include <stdlib.h>
 #include <stdio.h>
@@ -16,7 +17,7 @@
 
 
 //https://developer.valvesoftware.com/wiki/Valve_Texture_Format
-enum
+enum TextureFormat
 {
 	IMAGE_FORMAT_NONE = -1,
 	IMAGE_FORMAT_RGBA8888 = 0,
@@ -123,6 +124,12 @@ int deset_bit(int flag,int bit) noexcept
     return flag & ~(1 << bit);
 }
 
+template<typename T>
+bool in_range(T v, T l, T h)
+{
+    return (v <= h && v >= l);
+}
+
 int main(int argc,char *argv[])
 {
     if(argc != 2)
@@ -201,10 +208,28 @@ int main(int argc,char *argv[])
     header_buf->version[0] = 7; header_buf->version[1] = 2;
     header_buf->headerSize = 0x50;
     header_buf->frames = rand();
-    header_buf->width = rand();
-    header_buf->height = rand();
-    header_buf->flags = rand() % (1 << 30);
     header_buf->highResImageFormat = rand() % (IMAGE_FORMAT_UVLX8888 + 1);
+
+
+    // DXT compressed textures must be a multiple of 4
+    // cheers ficool2
+    if(in_range<int>(header_buf->highResImageFormat,IMAGE_FORMAT_DXT1,IMAGE_FORMAT_DXT5))
+    {
+        header_buf->width = rand() & ~3;
+        header_buf->height = rand() & ~ 3;
+    }
+
+    else
+    {
+        header_buf->width = rand();
+        header_buf->height = rand();      
+    }
+
+    // width and height must be from 0 to 8192
+    header_buf->width %= 8192;
+    header_buf->height %= 8192;
+
+    header_buf->flags = rand() % (1 << 30);
     header_buf->lowResImageFormat = IMAGE_FORMAT_DXT1;
     header_buf->mipmapCount = rand();
     header_buf->depth = rand();
