@@ -140,19 +140,35 @@ int main(int argc,char *argv[])
 
     const std::string filename = argv[1];
 
+    std::vector<uint8_t> buf;
+
+    buf.resize(get_file_size(filename));
+
+    read_file(filename,buf.data(),buf.size());
+
+    if(buf.size() < 0x50)
+    {
+        puts("file too small");
+        exit(1);
+    }
+
+    auto header_size = buf[0xc];
+
+    if(header_size > buf.size())
+    {
+        puts("file too small");
+        exit(1);
+    }
+
     tagVTFHEADER vtf_header;
+    memset(&vtf_header,0,sizeof(tagVTFHEADER));
 
-    auto size = get_file_size(filename);
-    read_file(filename,&vtf_header,sizeof(vtf_header));
+    memcpy(&vtf_header,buf.data(),header_size);
 
-    std::vector<uint8_t> buf(size);
-    read_file(filename,buf.data(),size);
-    
 
-    auto header_buf = reinterpret_cast<tagVTFHEADER*>(buf.data());
 
     // print our header
-    printf("file size: %d\n",size);
+    printf("file size: %d\n",buf.size());
     printf("Magic: %s\n",vtf_header.signature);
     printf("version %d.%d\n",vtf_header.version[0],vtf_header.version[1]);
     printf("header size %d\n",vtf_header.headerSize);
@@ -202,72 +218,79 @@ int main(int argc,char *argv[])
     printf("border: %d\n",is_set(vtf_header.flags,29));
 
 
-    // fiddle the data and write it back out
     // a zerod out header will happily be loaded
     // even if the console complains about it a little 
     // on counter strike source
     // and will cause crashes
-    //memset(header_buf,0,sizeof(tagVTFHEADER));
 
-    header_buf->version[0] = 7; header_buf->version[1] = 2;
-    header_buf->headerSize = 0x50;
+    // new header size + old file data
+    std::vector<uint8_t> out_vec(0x50 + buf.size()-header_size);
+
+    tagVTFHEADER new_header;
+    memcpy(&new_header,&vtf_header,sizeof(tagVTFHEADER));
+
+    // standard header stuff
+    new_header.version[0] = 7; new_header.version[1] = 2;
+    new_header.headerSize = 0x50;
+    strcpy(new_header.signature,"VTF");
+
+    //new_header.width = rand();
+    //new_header.height = rand();
+
+    // width and height must be from 0 to 8192
+    // not limiting them seems to give nice effects
+    // like it reading out of memory form god knows where
+    new_header.width %= 8192;
+    new_header.height %= 8192;
+
+    new_header.width = 4;
+    new_header.height = 18464;
+
+    // DXT compressed textures must be a multiple of 4
+    // cheers ficool2
+    if(in_range<int>(new_header.highResImageFormat,IMAGE_FORMAT_DXT1,IMAGE_FORMAT_DXT5))
+    {
+        new_header.width &= ~3;
+        new_header.height &= ~3;
+    }
+
+    new_header.bumpmapScale = 0.0;
+    //new_header.bumpmapScale = rand();
+    for(int i = 0; i < 3; i++)
+    {
+        new_header.reflectivity[i] = 0.0;
+        //new_header.reflectivity[i] = rand();
+    }
+
+
+    // i think these should be between 0 and 1.0 but im not 100% sure
+    new_header.bumpmapScale = fmod(new_header.bumpmapScale,1.0);
+    for(int i = 0; i < 3; i++)
+    {
+        new_header.reflectivity[i] = fmod(new_header.reflectivity[i],1.0);
+    }
 
     // atm i dont wanna have to format the data following the 
     // header so its valid for multiple frames so force to 1 for now
     // note having zero frames appears to cause crashes in otherwhise valid sprays..
-    header_buf->frames = 1; // header_buf->frames = rand();
+    new_header.frames = 0; 
 
+    new_header.flags = rand() % (1 << 30);
+
+
+    new_header.mipmapCount = rand();
+    new_header.depth = 1; // 2d texture
+
+    //new_header.lowResImageFormat = IMAGE_FORMAT_DXT1;
 
     // randomizing this one is likely to cause it to reject are spray
     // we need to fiddle the spray data if we want to do this
     // *** Error unserializing VTF file... is the file empty?
-    //header_buf->highResImageFormat = rand() % (IMAGE_FORMAT_UVLX8888 + 1);
+    //new_header.highResImageFormat = rand() % (IMAGE_FORMAT_UVLX8888 + 1);
 
-    // DXT compressed textures must be a multiple of 4
-    // cheers ficool2
-    if(in_range<int>(header_buf->highResImageFormat,IMAGE_FORMAT_DXT1,IMAGE_FORMAT_DXT5))
-    {
-        header_buf->width = rand() & ~3;
-        header_buf->height = rand() & ~ 3;
-    }
+    memcpy(out_vec.data(),&new_header,sizeof(tagVTFHEADER));
+    memcpy(out_vec.data()+0x50,buf.data()+header_size,buf.size()-header_size);
 
-    else
-    {
-        header_buf->width = rand();
-        header_buf->height = rand();      
-    }
-
-    // width and height must be from 0 to 8192
-    header_buf->width %= 8192;
-    header_buf->height %= 8192;
-
-    header_buf->flags = rand() % (1 << 30);
-
-    // accodring the the wiki this has to be dxt1
-    // however this seems to cause issues parsing it!?
-    // *** Encountered VTF invalid texture size!
-    //header_buf->lowResImageFormat = IMAGE_FORMAT_DXT1;
-
-    header_buf->mipmapCount = rand();
-    header_buf->depth = 1; // 2d texture
-
-    // using rand on a float is kinda jank but eh
-
-    header_buf->bumpmapScale = rand();
-    for(int i = 0; i < 3; i++)
-    {
-        header_buf->reflectivity[i] = rand();
-    }
-
-    // i think these should be between 0 and 1.0 but im not 100% sure
-    header_buf->bumpmapScale = fmod(header_buf->bumpmapScale,1.0);
-    for(int i = 0; i < 3; i++)
-    {
-        header_buf->reflectivity[i] = fmod(header_buf->reflectivity[i],1.0);
-    }
-
-    strcpy(header_buf->signature,"VTF");
-
-    write_file("test.vtf",buf.data(),size);
+    write_file("test.vtf",out_vec.data(),out_vec.size());
     puts("wrote file!");
 }
