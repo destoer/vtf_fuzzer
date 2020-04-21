@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 /*
     vtf header fuzzer
@@ -151,7 +152,7 @@ int main(int argc,char *argv[])
     auto header_buf = reinterpret_cast<tagVTFHEADER*>(buf.data());
 
     // print our header
-    printf("size: %d\n",size);
+    printf("file size: %d\n",size);
     printf("Magic: %s\n",vtf_header.signature);
     printf("version %d.%d\n",vtf_header.version[0],vtf_header.version[1]);
     printf("header size %d\n",vtf_header.headerSize);
@@ -204,12 +205,23 @@ int main(int argc,char *argv[])
     // fiddle the data and write it back out
     // a zerod out header will happily be loaded
     // even if the console complains about it a little 
-    memset(header_buf,0,sizeof(tagVTFHEADER));
+    // on counter strike source
+    // and will cause crashes
+    //memset(header_buf,0,sizeof(tagVTFHEADER));
+
     header_buf->version[0] = 7; header_buf->version[1] = 2;
     header_buf->headerSize = 0x50;
-    header_buf->frames = rand();
-    header_buf->highResImageFormat = rand() % (IMAGE_FORMAT_UVLX8888 + 1);
 
+    // atm i dont wanna have to format the data following the 
+    // header so its valid for multiple frames so force to 1 for now
+    // note having zero frames appears to cause crashes in otherwhise valid sprays..
+    header_buf->frames = 1; // header_buf->frames = rand();
+
+
+    // randomizing this one is likely to cause it to reject are spray
+    // we need to fiddle the spray data if we want to do this
+    // *** Error unserializing VTF file... is the file empty?
+    //header_buf->highResImageFormat = rand() % (IMAGE_FORMAT_UVLX8888 + 1);
 
     // DXT compressed textures must be a multiple of 4
     // cheers ficool2
@@ -230,15 +242,32 @@ int main(int argc,char *argv[])
     header_buf->height %= 8192;
 
     header_buf->flags = rand() % (1 << 30);
-    header_buf->lowResImageFormat = IMAGE_FORMAT_DXT1;
+
+    // accodring the the wiki this has to be dxt1
+    // however this seems to cause issues parsing it!?
+    // *** Encountered VTF invalid texture size!
+    //header_buf->lowResImageFormat = IMAGE_FORMAT_DXT1;
+
     header_buf->mipmapCount = rand();
-    header_buf->depth = rand();
+    header_buf->depth = 1; // 2d texture
+
+    // using rand on a float is kinda jank but eh
+
     header_buf->bumpmapScale = rand();
-    header_buf->reflectivity[0] = rand();
-    header_buf->reflectivity[1] = rand();
-    header_buf->reflectivity[2] = rand();
+    for(int i = 0; i < 3; i++)
+    {
+        header_buf->reflectivity[i] = rand();
+    }
+
+    // i think these should be between 0 and 1.0 but im not 100% sure
+    header_buf->bumpmapScale = fmod(header_buf->bumpmapScale,1.0);
+    for(int i = 0; i < 3; i++)
+    {
+        header_buf->reflectivity[i] = fmod(header_buf->reflectivity[i],1.0);
+    }
+
     strcpy(header_buf->signature,"VTF");
 
     write_file("test.vtf",buf.data(),size);
-
+    puts("wrote file!");
 }
