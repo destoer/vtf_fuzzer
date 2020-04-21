@@ -1,2 +1,6 @@
-fuzzer for vtf files since a crashing exploit has been found for sprays
+fuzzer for vtf files since a crashing exploit has been found for sprays (currently only messees with the header)
 https://developer.valvesoftware.com/wiki/Valve_Texture_Format
+
+
+css appears to accept sprays that are more malformed compared to tf2 and l4d2
+it will event accept a completly zerod out header (causes crashes)
