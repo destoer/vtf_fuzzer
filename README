@@ -4,3 +4,7 @@ https://developer.valvesoftware.com/wiki/Valve_Texture_Format
 
 css appears to accept sprays that are more malformed compared to tf2 and l4d2
 it will even accept a completly zerod out header (causes crashes)
+
+
+what looks it the game reading texture data out of some "random" memory
+https://youtu.be/woM0CEJPG7c
