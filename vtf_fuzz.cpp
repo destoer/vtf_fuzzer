@@ -2,12 +2,14 @@
 #include <fstream>
 #include <string>
 #include <iostream>
+#include <memory>
 #include <algorithm>
 #include <vector>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 
 /*
     vtf header fuzzer
@@ -84,13 +86,13 @@ void read_file(const std::string &filename, T *buf, size_t size)
 
     if(!fp)
     {
-        auto err = "failed to open file: " + filename;
+        auto err = "[read]failed to open file: " + filename;
         std::cout << err;
         exit(1);
     }
 
     fp.read(reinterpret_cast<char*>(buf),size);
-
+    fp.close();
 }
 
 
@@ -98,6 +100,14 @@ template<typename T>
 void write_file(const std::string &filename, const T *data,size_t size)
 {
     std::ofstream fp(filename,std::ios::binary);
+
+    if(!fp)
+    {
+        auto err = "[write]failed to open file: " + filename;
+        std::cout << err;
+        exit(1);
+    }
+    
 	fp.write(reinterpret_cast<const char*>(data),size);
     fp.close();
 }
@@ -105,8 +115,18 @@ void write_file(const std::string &filename, const T *data,size_t size)
 size_t get_file_size(const std::string &filename)
 {
     std::ifstream fp(filename);
+
+    if(!fp)
+    {
+        auto err = "[size]failed to open file: " + filename;
+        std::cout << err;
+        exit(1);        
+    }
+
     fp.seekg(0,fp.end);
-	return fp.tellg();
+	auto size  = fp.tellg();
+    fp.close();
+    return size;
 }
 
 
@@ -139,36 +159,43 @@ int main(int argc,char *argv[])
     }
 
     const std::string filename = argv[1];
+    size_t file_size = get_file_size(filename);
 
-    std::vector<uint8_t> buf;
-
-    buf.resize(get_file_size(filename));
-
-    read_file(filename,buf.data(),buf.size());
-
-    if(buf.size() < 0x50)
+    if(file_size < 0x50)
     {
         puts("file too small");
         exit(1);
     }
 
-    auto header_size = buf[0xc];
+    auto in_buf = std::make_unique<uint8_t[]>(file_size);
 
-    if(header_size > buf.size())
+    read_file(filename,&in_buf[0],file_size);
+
+   
+
+    size_t header_size = in_buf[0xc];
+    if(file_size < header_size || file_size < sizeof(tagVTFHEADER))
     {
         puts("file too small");
         exit(1);
     }
 
+    // if the header size is greater than our struct
+    // only read in that much
+    if(header_size > sizeof(tagVTFHEADER))
+    {
+        header_size = sizeof(tagVTFHEADER);
+    }
+
+
+    // pull however many fields out of the header we have
     tagVTFHEADER vtf_header;
     memset(&vtf_header,0,sizeof(tagVTFHEADER));
-
-    memcpy(&vtf_header,buf.data(),header_size);
-
+    memcpy(&vtf_header,&in_buf[0],header_size);
 
 
     // print our header
-    printf("file size: %d\n",buf.size());
+    printf("file size: %d\n",file_size);
     printf("Magic: %s\n",vtf_header.signature);
     printf("version %d.%d\n",vtf_header.version[0],vtf_header.version[1]);
     printf("header size %d\n",vtf_header.headerSize);
@@ -224,18 +251,32 @@ int main(int argc,char *argv[])
     // and will cause crashes
 
     // new header size + old file data
-    std::vector<uint8_t> out_vec(0x50 + buf.size()-header_size);
+    static_assert(0x50 >= sizeof(tagVTFHEADER));
+    const size_t data_size = file_size-header_size;
+    const size_t out_buf_size = 0x50 + data_size;
+    auto out_buf = std::make_unique<uint8_t[]>(out_buf_size);
+    memset(&out_buf[0],0,out_buf_size);
 
+    // memcpy old header in
     tagVTFHEADER new_header;
+    memset(&new_header,0,sizeof(tagVTFHEADER));
     memcpy(&new_header,&vtf_header,sizeof(tagVTFHEADER));
+
+    srand(time(NULL));
 
     // standard header stuff
     new_header.version[0] = 7; new_header.version[1] = 2;
     new_header.headerSize = 0x50;
     strcpy(new_header.signature,"VTF");
 
-    //new_header.width = rand();
-    //new_header.height = rand();
+
+    // yeah the flags parameter being modified craps out pretty much any
+    // spray that causes crashes
+    //new_header.flags = rand() % (1 << 30);
+
+    // cant have a zero width texture
+    //new_header.width = rand() + 4;
+    //new_header.height = rand() + 4;
 
     // width and height must be from 0 to 8192
     // not limiting them seems to give nice effects
@@ -243,8 +284,10 @@ int main(int argc,char *argv[])
     new_header.width %= 8192;
     new_header.height %= 8192;
 
-    new_header.width = 4;
-    new_header.height = 18464;
+    // just because 
+    //new_header.width = 4;
+    //new_header.height = 18464;
+
 
     // DXT compressed textures must be a multiple of 4
     // cheers ficool2
@@ -254,33 +297,47 @@ int main(int argc,char *argv[])
         new_header.height &= ~3;
     }
 
-    new_header.bumpmapScale = 0.0;
-    //new_header.bumpmapScale = rand();
+
+    // if this flag is set width and height must be equal
+    // or it will complain about having a non sqaure cubemap
+    if(is_set(new_header.flags,14))
+    {
+        new_header.width = new_header.height;
+    }
+
+    //new_header.bumpmapScale = 0.0;
+    new_header.bumpmapScale = rand();
     for(int i = 0; i < 3; i++)
     {
-        new_header.reflectivity[i] = 0.0;
-        //new_header.reflectivity[i] = rand();
+        //new_header.reflectivity[i] = 0.0;
+        new_header.reflectivity[i] = rand();
     }
 
 
     // i think these should be between 0 and 1.0 but im not 100% sure
-    new_header.bumpmapScale = fmod(new_header.bumpmapScale,1.0);
+    if(new_header.bumpmapScale > 1.0)
+    {
+        new_header.bumpmapScale = fmod(new_header.bumpmapScale,1.0);
+    }
     for(int i = 0; i < 3; i++)
     {
-        new_header.reflectivity[i] = fmod(new_header.reflectivity[i],1.0);
+        if(new_header.reflectivity[i] > 1.0)
+        {
+            new_header.reflectivity[i] = fmod(new_header.reflectivity[i],1.0);
+        }
     }
 
     // atm i dont wanna have to format the data following the 
     // header so its valid for multiple frames so force to 1 for now
-    // note having zero frames appears to cause crashes in otherwhise valid sprays..
-    new_header.frames = 0; 
+    // note having zero frames appears to cause strange effects
+    // (i believe this is because having zero frames causes it to)
+    // (not actually bother to process them meaning old data is left in a buffer)
+    //new_header.frames = 0; 
+    new_header.frames = 1;
 
-    new_header.flags = rand() % (1 << 30);
+    //new_header.mipmapCount = rand() % 10;
 
-
-    new_header.mipmapCount = rand();
-    new_header.depth = 1; // 2d texture
-
+    // aparrently its supposed to be this but idk
     //new_header.lowResImageFormat = IMAGE_FORMAT_DXT1;
 
     // randomizing this one is likely to cause it to reject are spray
@@ -288,9 +345,14 @@ int main(int argc,char *argv[])
     // *** Error unserializing VTF file... is the file empty?
     //new_header.highResImageFormat = rand() % (IMAGE_FORMAT_UVLX8888 + 1);
 
-    memcpy(out_vec.data(),&new_header,sizeof(tagVTFHEADER));
-    memcpy(out_vec.data()+0x50,buf.data()+header_size,buf.size()-header_size);
+    // 2d texture :)
+    new_header.depth = 1;
 
-    write_file("test.vtf",out_vec.data(),out_vec.size());
+    // copy header 
+    memcpy(&out_buf[0],&new_header,sizeof(tagVTFHEADER));
+    memcpy(&out_buf[0x50],&in_buf[header_size],data_size);
+
+
+    write_file("test.vtf",&out_buf[0],out_buf_size);
     puts("wrote file!");
 }
