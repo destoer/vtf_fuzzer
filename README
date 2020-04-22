@@ -5,7 +5,7 @@ what looks it the game reading texture data out of some "random" memory
 see current source for what appears to cause this
 https://youtu.be/woM0CEJPG7c
 
-this is done by setting zero frames with some bad dimensions and
+this is done by setting zero frames
 it appears that spray displays the last texture (shows the flashlight texture  when its on)
 maybye due to it not processing any new frames in the vtf and having old ones left in a buffer
 
