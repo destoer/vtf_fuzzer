@@ -1,16 +1,12 @@
 fuzzer for vtf files since a crashing exploit has been found for sprays (currently only messes with the header)
 https://developer.valvesoftware.com/wiki/Valve_Texture_Format
 
-
-css appears to accept sprays that are more malformed compared to tf2 and l4d2
-it will even accept a completly zerod out header (causes crashes)
-
-
 what looks it the game reading texture data out of some "random" memory
 see current source for what appears to cause this
 https://youtu.be/woM0CEJPG7c
 
 this is done by setting zero frames with some bad dimensions and
-bump map scale and the reflect vector to zero
 it appears that spray displays the last texture (shows the flashlight texture  when its on)
 maybye due to it not processing any new frames in the vtf and having old ones left in a buffer
+
+it appears from the testing it using a spray known to crash that its something related the flags parameter
