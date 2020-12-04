@@ -15,7 +15,6 @@
     vtf header fuzzer
     can cause crashes when players see sprays produced by this program
     https://github.com/destoer/vtf_fuzzer
-
 */
 
 
@@ -195,7 +194,7 @@ int main(int argc,char *argv[])
 
 
     // print our header
-    printf("file size: %d\n",file_size);
+    printf("file size: %zd\n",file_size);
     printf("Magic: %s\n",vtf_header.signature);
     printf("version %d.%d\n",vtf_header.version[0],vtf_header.version[1]);
     printf("header size %d\n",vtf_header.headerSize);
@@ -243,8 +242,8 @@ int main(int argc,char *argv[])
     printf("vertex texture: %d\n",is_set(vtf_header.flags,26));
     printf("ssbump: %d\n",is_set(vtf_header.flags,27));
     printf("border: %d\n",is_set(vtf_header.flags,29));
-
-
+    
+    
     // a zerod out header will happily be loaded
     // even if the console complains about it a little 
     // on counter strike source
@@ -264,39 +263,11 @@ int main(int argc,char *argv[])
 
     srand(time(NULL));
 
+	// do some basic validity checks
     // standard header stuff
     new_header.version[0] = 7; new_header.version[1] = 2;
     new_header.headerSize = 0x50;
     strcpy(new_header.signature,"VTF");
-
-
-    // yeah the flags parameter being modified craps out pretty much any
-    // spray that causes crashes
-    //new_header.flags = rand() % (1 << 30);
-
-    // cant have a zero width texture
-    //new_header.width = rand() + 4;
-    //new_header.height = rand() + 4;
-
-    // width and height must be from 0 to 8192
-    // not limiting them seems to give nice effects
-    // like it reading out of memory form god knows where
-    new_header.width %= 8192;
-    new_header.height %= 8192;
-
-    // just because 
-    //new_header.width = 4;
-    //new_header.height = 18464;
-
-
-    // DXT compressed textures must be a multiple of 4
-    // cheers ficool2
-    if(in_range<int>(new_header.highResImageFormat,IMAGE_FORMAT_DXT1,IMAGE_FORMAT_DXT5))
-    {
-        new_header.width &= ~3;
-        new_header.height &= ~3;
-    }
-
 
     // if this flag is set width and height must be equal
     // or it will complain about having a non sqaure cubemap
@@ -305,54 +276,23 @@ int main(int argc,char *argv[])
         new_header.width = new_header.height;
     }
 
-    //new_header.bumpmapScale = 0.0;
-    new_header.bumpmapScale = rand();
-    for(int i = 0; i < 3; i++)
-    {
-        //new_header.reflectivity[i] = 0.0;
-        new_header.reflectivity[i] = rand();
-    }
+    // what i think causes it is the depth target
+	// it would appear a couple of frames are required too 
+	// (1 wont work and zero will just cause it to read unitalized memory works on any spray)
+	// spray i tested against has a dxt1 fmt (dont know if others work too)
+    new_header.flags = set_bit(new_header.flags,16); // depth render target
+    new_header.flags = set_bit(new_header.flags,23); // no depth buffer (this would seem to be in conflict with other settings!?)
+    new_header.flags = set_bit(new_header.flags,15); // render target
+    new_header.mipmapCount = 0;
+    new_header.frames = 10;
+    new_header.bumpmapScale = 1.0;
 
-
-    // i think these should be between 0 and 1.0 but im not 100% sure
-    if(new_header.bumpmapScale > 1.0)
-    {
-        new_header.bumpmapScale = fmod(new_header.bumpmapScale,1.0);
-    }
-    for(int i = 0; i < 3; i++)
-    {
-        if(new_header.reflectivity[i] > 1.0)
-        {
-            new_header.reflectivity[i] = fmod(new_header.reflectivity[i],1.0);
-        }
-    }
-
-    // atm i dont wanna have to format the data following the 
-    // header so its valid for multiple frames so force to 1 for now
-    // note having zero frames appears to cause strange effects
-    // (i believe this is because having zero frames causes it to)
-    // (not actually bother to process them meaning old data is left in a buffer)
-    //new_header.frames = 0; 
-    new_header.frames = 1;
-
-    //new_header.mipmapCount = rand() % 10;
-
-    // aparrently its supposed to be this but idk
-    //new_header.lowResImageFormat = IMAGE_FORMAT_DXT1;
-
-    // randomizing this one is likely to cause it to reject are spray
-    // we need to fiddle the spray data if we want to do this
-    // *** Error unserializing VTF file... is the file empty?
-    //new_header.highResImageFormat = rand() % (IMAGE_FORMAT_UVLX8888 + 1);
-
-    // 2d texture :)
-    new_header.depth = 1;
-
+    
     // copy header 
     memcpy(&out_buf[0],&new_header,sizeof(tagVTFHEADER));
     memcpy(&out_buf[0x50],&in_buf[header_size],data_size);
 
 
-    write_file("test.vtf",&out_buf[0],out_buf_size);
-    puts("wrote file!");
+    write_file("test_scratch_13.vtf",&out_buf[0],out_buf_size);
+    puts("wrote file!");    
 }
