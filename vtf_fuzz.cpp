@@ -152,9 +152,9 @@ bool in_range(T v, T l, T h)
 
 int main(int argc,char *argv[])
 {
-    if(argc != 2)
+    if(argc != 3)
     {
-        printf("usage: %s <vtf file to inspect>",argv[0]);
+        printf("usage: %s <vtf file to inspect> <output name>",argv[0]);
     }
 
     const std::string filename = argv[1];
@@ -172,24 +172,19 @@ int main(int argc,char *argv[])
 
    
 
-    size_t header_size = in_buf[0xc];
-    if(file_size < header_size || file_size < sizeof(tagVTFHEADER))
+    const size_t header_size = sizeof(tagVTFHEADER);
+    if(file_size < header_size || file_size < header_size)
     {
         puts("file too small");
         exit(1);
     }
 
-    // if the header size is greater than our struct
-    // only read in that much
-    if(header_size > sizeof(tagVTFHEADER))
-    {
-        header_size = sizeof(tagVTFHEADER);
-    }
+
 
 
     // pull however many fields out of the header we have
     tagVTFHEADER vtf_header;
-    memset(&vtf_header,0,sizeof(tagVTFHEADER));
+    memset(&vtf_header,0,header_size);
     memcpy(&vtf_header,&in_buf[0],header_size);
 
 
@@ -249,32 +244,47 @@ int main(int argc,char *argv[])
     // on counter strike source
     // and will cause crashes
 
+    printf("size of header: %x\n",header_size);
+    
     // new header size + old file data
-    static_assert(0x50 >= sizeof(tagVTFHEADER));
+    static_assert(0x50 >= header_size);
     const size_t data_size = file_size-header_size;
-    const size_t out_buf_size = 0x50 + data_size;
+    const size_t out_buf_size = header_size + data_size;
     auto out_buf = std::make_unique<uint8_t[]>(out_buf_size);
     memset(&out_buf[0],0,out_buf_size);
 
     // memcpy old header in
     tagVTFHEADER new_header;
-    memset(&new_header,0,sizeof(tagVTFHEADER));
-    memcpy(&new_header,&vtf_header,sizeof(tagVTFHEADER));
+    memset(&new_header,0,header_size);
+    //memcpy(&new_header,&vtf_header,header_size);
 
     srand(time(NULL));
 
 	// do some basic validity checks
     // standard header stuff
-    new_header.version[0] = 7; new_header.version[1] = 2;
-    new_header.headerSize = 0x50;
+    new_header.version[0] = 7; new_header.version[1] = 1;
+    new_header.headerSize = 0x40;
     strcpy(new_header.signature,"VTF");
 
+    
+/*
     // if this flag is set width and height must be equal
     // or it will complain about having a non sqaure cubemap
     if(is_set(new_header.flags,14))
     {
         new_header.width = new_header.height;
     }
+*/
+
+
+    // make this thing valid
+    new_header.width = new_header.height = 512;
+    new_header.depth = 1;
+    new_header.frames = 10;
+
+    //new_header.highResImageFormat = IMAGE_FORMAT_DXT5;
+    //new_header.lowResImageFormat = IMAGE_FORMAT_DXT1;
+
 
     // what i think causes it is the depth target
 	// it would appear a couple of frames are required too 
@@ -282,17 +292,30 @@ int main(int argc,char *argv[])
 	// spray i tested against has a dxt1 fmt (dont know if others work too)
     new_header.flags = set_bit(new_header.flags,16); // depth render target
     new_header.flags = set_bit(new_header.flags,23); // no depth buffer (this would seem to be in conflict with other settings!?)
-    new_header.flags = set_bit(new_header.flags,15); // render target
-    new_header.mipmapCount = 0;
-    new_header.frames = 10;
-    new_header.bumpmapScale = 1.0;
+    //new_header.flags = set_bit(new_header.flags,15); // render target
+
+
+    // unknown
+    new_header.flags = set_bit(new_header.flags,6);
+
+    //new_header.mipmapCount = 8;
+    //new_header.bumpmapScale = 1.0;
+
+
+
+
+    for(int i = 0; i < 3; i++)
+    {
+        new_header.reflectivity[i] = (float)1 / ( rand() % 512 );
+    }
 
     
+    
     // copy header 
-    memcpy(&out_buf[0],&new_header,sizeof(tagVTFHEADER));
-    memcpy(&out_buf[0x50],&in_buf[header_size],data_size);
+    memcpy(&out_buf[0],&new_header,header_size);
+    memcpy(&out_buf[header_size],&in_buf[header_size],data_size);
 
 
-    write_file("test_scratch_13.vtf",&out_buf[0],out_buf_size);
+    write_file(argv[2],&out_buf[0],out_buf_size);
     puts("wrote file!");    
 }
